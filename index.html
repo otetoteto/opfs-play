@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>opfs play</title>
+  </head>
+  <body>
+    <button id="debug">debug</button>
+    <button id="remove">remove all</button>
+    <button id="write">write</button>
+
+    <input type="text" id="filename" />
+
+    <script>
+      /**
+       * @param {FileSystemDirectoryHandle} dirHandle
+       */
+      async function walk(dirHandle, level = 0) {
+        for await (const [name, handle] of dirHandle) {
+          const isDir = handle.kind === "directory";
+          console.log(`${"\t".repeat(level)}${isDir ? "🗂️" : "📄"} ${name}`);
+
+          if (isDir) {
+            await walk(handle, level + 1);
+          }
+        }
+      }
+
+      document.querySelector("#debug").addEventListener("click", async () => {
+        const root = await navigator.storage.getDirectory();
+        await walk(root);
+      });
+
+      document.querySelector("#remove").addEventListener("click", async () => {
+        const root = await navigator.storage.getDirectory();
+        await root.remove({ recursive: true });
+      });
+
+      document.querySelector("#write").addEventListener("click", async () => {
+        const filename = document.querySelector("#filename").value;
+        if (!filename) {
+          alert("no filename");
+          return;
+        }
+        const root = await navigator.storage.getDirectory();
+        const encoder = new TextEncoder();
+        const dir1 = await root.getDirectoryHandle("dir1", { create: true });
+        const mainjs = await dir1.getFileHandle(filename, { create: true });
+        const writer = await mainjs.createWritable({ keepExistingData: true });
+        await writer.write(encoder.encode(`console.log('${filename}');`));
+        await writer.close();
+      });
+    </script>
+  </body>
+</html>
