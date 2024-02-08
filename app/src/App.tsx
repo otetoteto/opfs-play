@@ -24,14 +24,24 @@ export function App() {
         <ul>
           {tree.children.map((child) => (
             <li key={child.name}>
-              {child.name}
               {child.kind === "dir" ? (
-                <ul>
-                  {child.children.map((child) => (
-                    <li key={child.name}>{child.name}</li>
-                  ))}
-                </ul>
-              ) : null}
+                <div>
+                  <button
+                    onClick={async () => {
+                      await addDir(`${new Date()}`);
+                    }}
+                  >
+                    {child.name}
+                  </button>
+                  <ul>
+                    {child.children.map((child) => (
+                      <li key={child.name}>{child.name}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p>{child.name}</p>
+              )}
             </li>
           ))}
         </ul>

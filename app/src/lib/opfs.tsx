@@ -1,18 +1,81 @@
 import { useState, useSyncExternalStore } from "react";
 
-export type OpfsDir = {
-  kind: "dir";
-  name: string;
-  children: OpfsEntry[];
-};
+class OpfsDir {
+  kind = "dir" as const;
+  #name: string;
+  #children: OpfsEntry[];
+  #handle: FileSystemDirectoryHandle;
+  #emitChange: (() => void) | null = null;
+  constructor(
+    handle: FileSystemDirectoryHandle,
+    emitChange: null | (() => void),
+    children: OpfsEntry[] = [],
+    name: string = ""
+  ) {
+    this.#name = name || handle.name;
+    this.#children = children;
+    this.#handle = handle;
+    this.#emitChange = emitChange;
+  }
 
-export type OpfsFile = {
-  kind: "file";
-  name: string;
-  content: string;
-};
+  get name() {
+    return this.#name;
+  }
 
-export type OpfsEntry = OpfsDir | OpfsFile;
+  get children() {
+    return this.#children;
+  }
+
+  async *iter() {
+    for await (const [name, handle] of this.#handle) {
+      yield [name, handle] as const;
+    }
+  }
+
+  async createFile(name: string, content: string = "") {
+    const handle = await this.#handle.getFileHandle(name, { create: true });
+    const file = new OpfsFile(handle, this.#emitChange, content);
+    this.#children.push(file);
+    this.#emitChange?.();
+  }
+
+  async createDir(name: string, children: OpfsEntry[] = []) {
+    const handle = await this.#handle.getDirectoryHandle(name, {
+      create: true,
+    });
+    const dir = new OpfsDir(handle, this.#emitChange, children);
+    this.#children.push(dir);
+    this.#emitChange?.();
+  }
+}
+
+class OpfsFile {
+  kind = "file" as const;
+  #name: string;
+  #content: string;
+  #handle: FileSystemFileHandle;
+  #emitChange: (() => void) | null = null;
+  constructor(
+    handle: FileSystemFileHandle,
+    emitChange: null | (() => void),
+    content: string = ""
+  ) {
+    this.#name = handle.name;
+    this.#content = content;
+    this.#handle = handle;
+    this.#emitChange = emitChange;
+  }
+
+  get name() {
+    return this.#name;
+  }
+
+  get content() {
+    return this.#content;
+  }
+}
+
+type OpfsEntry = OpfsDir | OpfsFile;
 
 declare global {
   interface FileSystemDirectoryHandle {
@@ -23,18 +86,18 @@ declare global {
 
 export class OpfsTree {
   #listenId: number | null = null;
-  #interval: number = 10_000;
+  #interval: number = 15_000;
 
   #emitChange: (() => void) | null = null;
 
-  #cache: OpfsDir = {
-    kind: "dir",
+  #cache = {
+    kind: "dir" as const,
     name: "root",
-    children: [],
+    children: [] as OpfsEntry[],
   };
 
-  tree(): OpfsDir {
-    return this.#cache;
+  tree() {
+    return this.#cache as OpfsDir;
   }
 
   constructor(config: { interval?: number } = {}) {
@@ -68,31 +131,18 @@ export class OpfsTree {
   async #walk() {
     const root = await navigator.storage.getDirectory();
     await this.#walk_(
-      root,
-      (this.#cache = {
-        kind: "dir",
-        name: "root",
-        children: [],
-      })
+      (this.#cache = new OpfsDir(root, this.#emitChange, [], "root"))
     );
   }
 
-  async #walk_(dirHandle: FileSystemDirectoryHandle, dirEntry: OpfsDir) {
-    for await (const [name, handle] of dirHandle) {
+  async #walk_(dir: OpfsDir): Promise<void> {
+    for await (const [, handle] of dir.iter()) {
       if (this.#isDirHandle(handle)) {
-        const child: OpfsDir = {
-          kind: "dir",
-          name,
-          children: [],
-        };
-        dirEntry.children.push(child);
-        await this.#walk_(handle, child);
+        const child = new OpfsDir(handle, this.#emitChange);
+        dir.children.push(child);
+        await this.#walk_(child);
       } else {
-        dirEntry.children.push({
-          kind: "file",
-          name,
-          content: "",
-        });
+        dir.createFile(handle.name);
       }
     }
   }
